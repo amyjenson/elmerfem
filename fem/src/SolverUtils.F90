@@ -15385,7 +15385,7 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
   LOGICAL, ALLOCATABLE :: TrueDof(:)
   INTEGER, ALLOCATABLE :: Iperm(:)
   CHARACTER(*), PARAMETER :: Caller = 'SolveWithLinearRestriction'
-
+  LOGICAL :: PSA
   
 !------------------------------------------------------------------------------
   CALL Info( Caller, ' ', Level=6 )
@@ -15397,6 +15397,10 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
   NotExplicit = ListGetLogical(Solver % Values,'No Explicit Constrained Matrix',Found)
   IF(.NOT. Found) NotExplicit=.FALSE.
 
+  ! When this has been checked properly the old can be removed
+  PSA = ListGetLogical( Solver % Values,'PSA',Found ) 
+  IF(.NOT. Found) PSA = .TRUE.
+    
   RestMatrix => NULL()
   IF(.NOT.NotExplicit) RestMatrix => StiffMatrix % ConstraintMatrix
   RestVector => Null()
@@ -15704,13 +15708,24 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
          Found = .NOT.StiffMatrix % ConstrainedDOF(i)
 
       IF(Found) THEN
-        Found = .FALSE.
-        DO j=AddMatrix % Rows(i+1)-1,AddMatrix % Rows(i),-1
+        IF( PSA .AND. CollectionMatrix % FORMAT == MATRIX_LIST ) THEN
+          BLOCK
+            INTEGER :: l1,l2
+            l1 = AddMatrix % Rows(i)
+            l2 = AddMatrix % Rows(i+1)-1
+            CALL PackSparseRow(CollectionMatrix,i,l2-l1+1,&
+                AddMatrix % Cols(l1:l2), AddMatrix % Values(l1:l2) ) 
+            Found = ANY( AddMatrix % Cols(l1:l2) == i )
+          END BLOCK
+        ELSE
+          Found = .FALSE.        
+          DO j=AddMatrix % Rows(i+1)-1,AddMatrix % Rows(i),-1
             CALL AddToMatrixElement( CollectionMatrix, &
-               i, AddMatrix % Cols(j), AddMatrix % Values(j))
+                i, AddMatrix % Cols(j), AddMatrix % Values(j))
             IF (i == AddMatrix % Cols(j)) Found = .TRUE.
-        END DO
-
+          END DO
+        END IF
+        
         CollectionVector(i) = CollectionVector(i) + AddVector(i)
         IF (.NOT.Found) THEN
           CALL AddToMatrixElement( CollectionMatrix, i, i, 0._dp )
@@ -15731,12 +15746,22 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
 ! Put the StiffMatrix to upper part of CollectionMatrix
 !------------------------------------------------------------------------------
   CALL Info(Caller,'Adding Stiffness Matrix into CollectionMatrix',Level=10)
-
+  
   DO i=StiffMatrix % NumberOfRows,1,-1
-    DO j=StiffMatrix % Rows(i+1)-1,StiffMatrix % Rows(i),-1
-      CALL AddToMatrixElement( CollectionMatrix, &
-        i, StiffMatrix % Cols(j), StiffMatrix % Values(j) )
-    END DO
+    IF(PSA .AND. CollectionMatrix % FORMAT /= MATRIX_LIST) THEN 
+      BLOCK
+        INTEGER :: l1,l2
+        l1 = StiffMatrix % Rows(i)
+        l2 = StiffMatrix % Rows(i+1)-1      
+        CALL PackSparseRow(CollectionMatrix,i,l2-l1+1,&
+            StiffMatrix % Cols(l1:l2),StiffMatrix % Values(l1:l2) )
+      END BLOCK
+    ELSE
+      DO j=StiffMatrix % Rows(i+1)-1,StiffMatrix % Rows(i),-1
+        CALL AddToMatrixElement( CollectionMatrix, &
+            i, StiffMatrix % Cols(j), StiffMatrix % Values(j) )
+      END DO
+    END IF
     CollectionVector(i) = CollectionVector(i) + ForceVector(i)
   END DO
 
@@ -15846,15 +15871,25 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
     CALL Info(Caller,'Copying rows from constraint matrix to eliminate dofs',Level=15)
     DO m=1,RestMatrix % NumberOfRows
       i = UseIPerm(m)
-      DO l=RestMatrix % Rows(m+1)-1, RestMatrix % Rows(m), -1
-        j = RestMatrix % Cols(l)
 
-        ! skip l-coeffient entries, handled separately afterwards:
-        ! --------------------------------------------------------
-        IF(j > n) CYCLE
-
-        CALL List_AddToMatrixElement( Lmat, i, j, Vals(l) )
-      END DO
+      IF( PSA .AND. CollectionMatrix % FORMAT == MATRIX_LIST ) THEN
+        BLOCK
+          INTEGER :: l1,l2
+          l1 = RestMatrix % Rows(m)
+          l2 = RestMatrix % Rows(m+1)-1
+          CALL PackSparseRow(CollectionMatrix,i,l2-l1+1,&
+              RestMatrix % Cols(l1:l2), Vals(l1:l2), n) 
+        END BLOCK
+      ELSE
+        DO l=RestMatrix % Rows(m+1)-1, RestMatrix % Rows(m), -1
+          j = RestMatrix % Cols(l)
+          
+          ! skip l-coeffient entries, handled separately afterwards:
+          ! --------------------------------------------------------
+          IF(j > n) CYCLE
+          CALL List_AddToMatrixElement( Lmat, i, j, Vals(l) )
+        END DO
+      END IF
       CollectionVector(i) = RestVector(m)
     END DO
 
@@ -15962,10 +15997,20 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
           END IF
         END IF
 
-        DO l=StiffMatrix % Rows(i+1)-1, StiffMatrix % Rows(i),-1
-          CALL List_AddToMatrixElement( Lmat, k, &
-              StiffMatrix % Cols(l), scl * StiffMatrix % Values(l) )
-        END DO
+        IF( PSA .AND. CollectionMatrix % FORMAT == MATRIX_LIST ) THEN
+          BLOCK
+            INTEGER :: l1,l2
+            l1 = StiffMatrix % Rows(i)
+            l2 = StiffMatrix % Rows(i+1)-1
+            CALL PackSparseRow(CollectionMatrix,k,l2-l1+1,&
+                StiffMatrix % Cols(l1:l2), StiffMatrix % Values(l1:l2), ValScale = scl ) 
+          END BLOCK
+        ELSE
+          DO l=StiffMatrix % Rows(i+1)-1, StiffMatrix % Rows(i),-1
+            CALL List_AddToMatrixElement( Lmat, k, &
+                StiffMatrix % Cols(l), scl * StiffMatrix % Values(l) )
+          END DO
+        END IF
         CollectionVector(k) = CollectionVector(k) + scl * ForceVector(i)
       END DO
     END DO
@@ -16075,10 +16120,13 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
     CALL Info(Caller,'Finished Adding ConstraintMatrix',Level=12)
   END IF
 
-  CALL Info(Caller,'Reverting CollectionMatrix back to CRS matrix',Level=10)
-  IF(CollectionMatrix % FORMAT==MATRIX_LIST) &
-      CALL List_toCRSMatrix(CollectionMatrix)
-
+  IF(CollectionMatrix % FORMAT==MATRIX_LIST) THEN 
+    CALL Info(Caller,'Reverting CollectionMatrix back to CRS matrix',Level=10)
+    CALL List_toCRSMatrix(CollectionMatrix)
+  ELSE
+    CALL Warn(Caller,'How can we have CRS matrix here?')
+  END IF
+    
   IF( InfoActive(30) ) THEN    
     CALL VectorValuesRange(CollectionMatrix % Values,&
         SIZE(CollectionMatrix % Values),'CollectionMatrix')           
@@ -16270,6 +16318,59 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
 
 CONTAINS
 
+#if 1
+  SUBROUTINE PackSparseRow(Matrix,k1,n,Cols,Vals,indmax,ValScale)
+    TYPE(Matrix_t) :: Matrix
+    INTEGER :: k1, n
+    INTEGER :: Cols(:)
+    REAL(KIND=dp) :: Vals(:)
+    INTEGER, OPTIONAL :: indmax
+    REAL(KIND=dp), OPTIONAL :: ValScale
+
+    INTEGER, ALLOCATABLE, SAVE :: Cols_pack(:) 
+    REAL(KIND=dp), ALLOCATABLE, SAVE :: Vals_pack(:) 
+    INTEGER :: m, i, j, imax
+    
+    IF(.NOT. ALLOCATED(Cols_pack)) THEN
+      ALLOCATE(Cols_pack(n), Vals_pack(n) )
+      Cols_pack = 0; Vals_pack = 0.0_dp
+    ELSE IF( SIZE(Cols_pack) < n ) THEN
+      DEALLOCATE( Cols_pack, Vals_pack )
+      ALLOCATE( Cols_pack(n), Vals_pack(n) )
+      Cols_pack = 0; Vals_pack = 0.0_dp
+    END IF
+
+    IF( PRESENT(indmax) ) THEN
+      imax = indmax
+    ELSE
+      imax = HUGE(imax)
+    END IF
+
+    m = 0    
+    DO i=1,n
+      IF(Cols(i) < 1 .OR. Cols(i) > imax) CYCLE
+      !IF( PRESENT(minv) ) THEN
+      !  IF( ABS(Vals_pack(j)) < minv ) CYCLE
+      !END IF
+      m = m+1
+      Cols_pack(m) = Cols(i)
+      Vals_pack(m) = Vals(i)
+    END DO
+
+    IF(m==0) RETURN
+    CALL SortF( m,Cols_pack,Vals_pack )
+
+    IF( PRESENT( ValScale ) ) THEN
+      Vals_pack(1:m) = ValScale * Vals_pack(1:m)
+    END IF
+    
+    CALL List_AddMatrixIndexesAndValues(Matrix % ListMatrix, k1, m, &
+        Cols_pack, Vals_pack )
+    
+  END SUBROUTINE PackSparseRow
+#endif
+
+  
   SUBROUTINE totv( A, totvalues, perm )
     type(matrix_t), pointer :: A
     real(kind=dp) :: totvalues(:)

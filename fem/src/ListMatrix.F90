@@ -109,6 +109,8 @@ CONTAINS
         NewMatrix(i)=Matrix(i)
       END DO
       DEALLOCATE(Matrix)
+    ELSE
+      PRINT *,'alloc new list matrix of size:',n
     END IF
 !-------------------------------------------------------------------------------
   END FUNCTION List_EnlargeMatrix
@@ -378,6 +380,7 @@ CONTAINS
    END FUNCTION List_GetMatrixIndex
 !-------------------------------------------------------------------------------
 
+
 !-------------------------------------------------------------------------------
    SUBROUTINE List_AddMatrixIndexes(List,k1,nk2,Ind)
    ! Add an array of sorted indeces to a row in ListMatrix_t. "ind" may
@@ -394,7 +397,8 @@ CONTAINS
      INTEGER :: i,k2,k2i,j, k,prevind
 
      IF (k1>SIZE(List)) THEN
-       CALL Fatal('List_AddMatrixIndexes','Row index out of bounds')
+       CALL Fatal('List_AddMatrixIndexes',&
+           'Row index '//TRIM(I2S(k1))//' larger than matrix '//TRIM(I2S(SIZE(List))))
      END IF
      
      ! Add each element in Ind to the row list
@@ -473,6 +477,113 @@ CONTAINS
    END SUBROUTINE List_AddMatrixIndexes
 !-------------------------------------------------------------------------------
 
+
+!-------------------------------------------------------------------------------
+   SUBROUTINE List_AddMatrixIndexesAndValues(List,k1,nk2,Ind,Val,maxind)
+   ! Add an array of sorted indeces to a row in ListMatrix_t. "ind" may *NOT*
+   ! contain duplicate entries.
+!-------------------------------------------------------------------------------
+     IMPLICIT NONE
+
+     TYPE(ListMatrix_t), POINTER :: List(:)
+     INTEGER, INTENT(IN) :: k1, nk2
+     INTEGER, INTENT(IN) :: Ind(:)
+     REAL(KIND=dp), INTENT(IN) :: Val(:)
+     INTEGER, OPTIONAL :: maxind
+     
+     TYPE(ListMatrixEntry_t), POINTER :: RowPtr, PrevPtr, Entry
+!-------------------------------------------------------------------------------
+     INTEGER :: i,k2,k2i,j,k,maxi
+
+     IF ( .NOT. ASSOCIATED(List) .OR. k1>SIZE(List) ) THEN
+       List => List_EnlargeMatrix(List,MAX(k1, &
+             SIZE(List)+LISTMATRIX_GROWTH) )
+     END IF
+
+     IF(PRESENT(maxind)) THEN
+       maxi = maxind
+     ELSE
+       maxi = HUGE(maxi)
+     END IF
+
+     DO k2i=1,nk2
+       k2 = Ind(k2i)
+       IF(k2 > 0 .AND. k2 <= maxi) EXIT
+     END DO
+     IF(k2i > nk2) RETURN
+            
+     RowPtr => List(k1) % Head
+     
+     ! First element needs special treatment as it may modify 
+     ! the list starting point
+     IF (.NOT. ASSOCIATED(RowPtr)) THEN
+       Entry => List_GetMatrixEntry(Ind(k2i),NULL())
+       List(k1) % Degree = 1
+       List(k1) % Head => Entry
+       ENTRY % VALUE = Val(k2i)
+       k2i = k2i + 1
+     ELSE IF (RowPtr % Index > Ind(1)) THEN
+       Entry => List_GetMatrixEntry(Ind(k2i),RowPtr)
+       List(k1) % Degree = List(k1) % Degree + 1
+       List(k1) % Head => Entry
+       ENTRY % VALUE = Val(k2i)
+       k2i = k2i + 1
+     ELSE IF (RowPtr % Index == Ind(k2i)) THEN
+       RowPtr % VALUE = RowPtr % VALUE + Val(k2i)
+       k2i = k2i + 1
+     END IF
+
+     PrevPtr => List(k1) % Head 
+     RowPtr  => List(k1) % Head % Next
+
+     DO i=k2i,nk2
+       k2=Ind(i)
+       IF(k2 < 1 .OR. k2 > maxi) CYCLE
+       
+       ! Find a correct place place to add index to
+       DO WHILE( ASSOCIATED(RowPtr) )
+         IF (RowPtr % Index >= k2) EXIT
+         PrevPtr => RowPtr
+         RowPtr  => RowPtr % Next
+       END DO
+       
+       IF (ASSOCIATED(RowPtr)) THEN
+         ! Do not add duplicates
+         IF (RowPtr % Index /= k2) THEN
+           ! Create new element between PrevPtr and RowPtr
+           Entry => List_GetMatrixEntry(k2,RowPtr)
+           PrevPtr % Next => Entry
+           List(k1) % Degree = List(k1) % Degree + 1
+
+           ! Advance to next element in list
+           PrevPtr => Entry
+           Entry % Value = Val(i)
+         ELSE
+           ! Advance to next element in list
+           RowPtr % VALUE = RowPtr % VALUE + Val(i)
+           PrevPtr => RowPtr
+           RowPtr  => RowPtr % Next
+         END IF
+       ELSE
+         EXIT
+       END IF
+     END DO
+
+     DO j=i,nk2
+       k2 = Ind(j)
+       IF(k2 < 1 .OR. k2 > maxi) CYCLE
+       
+       Entry => List_GetMatrixEntry(k2,null())
+       PrevPtr % Next => Entry
+       Entry % Value = Val(j)
+       PrevPtr => PrevPtr % Next
+       List(k1) % Degree = List(k1) % Degree + 1
+     END DO
+!-------------------------------------------------------------------------------
+   END SUBROUTINE List_AddMatrixIndexesAndValues
+!-------------------------------------------------------------------------------
+
+   
 !-------------------------------------------------------------------------------
    FUNCTION List_GetMatrixEntry(ind, next) RESULT(ListEntry)
 !-------------------------------------------------------------------------------
