@@ -419,8 +419,8 @@ CONTAINS
        k2i = 2
        prevind = ind(1)
      ELSE IF (RowPtr % Index == Ind(1)) THEN
-        k2i = 2
-        prevind = ind(1)
+       k2i = 2
+       prevind = ind(1)
      ELSE
        k2i = 1
        prevind = -1
@@ -463,6 +463,7 @@ CONTAINS
        prevind = k2
      END DO
 
+     ! Do the remaining entries. If all entries were already allocated nothing to be done here.
      DO j=i,nk2
        k2 = Ind(j)
        if (k2 == prevind) cycle
@@ -506,12 +507,22 @@ CONTAINS
        maxi = HUGE(maxi)
      END IF
 
+     ! Make sure there is no unsuitable 1st entry
      DO k2i=1,nk2
        k2 = Ind(k2i)
        IF(k2 > 0 .AND. k2 <= maxi) EXIT
      END DO
      IF(k2i > nk2) RETURN
-            
+
+     IF(k2i > 1 ) THEN
+       PRINT *,'K2i:',k2i,Ind(1:nk2)
+     END IF
+     
+     DO i=1,nk2-1
+       IF(Ind(i) > Ind(i+1) ) CALL Fatal('List_AddMatrixIndexesAndValues',&
+           'Entries should be in increasing order!')
+     END DO
+     
      RowPtr => List(k1) % Head
      
      ! First element needs special treatment as it may modify 
@@ -521,24 +532,27 @@ CONTAINS
        List(k1) % Degree = 1
        List(k1) % Head => Entry
        ENTRY % VALUE = Val(k2i)
-       k2i = k2i + 1
-     ELSE IF (RowPtr % Index > Ind(1)) THEN
+       PRINT *,'b1'
+     ELSE IF (RowPtr % Index > Ind(k2i)) THEN
        Entry => List_GetMatrixEntry(Ind(k2i),RowPtr)
        List(k1) % Degree = List(k1) % Degree + 1
        List(k1) % Head => Entry
        ENTRY % VALUE = Val(k2i)
-       k2i = k2i + 1
+       PRINT *,'b2'
      ELSE IF (RowPtr % Index == Ind(k2i)) THEN
        RowPtr % VALUE = RowPtr % VALUE + Val(k2i)
-       k2i = k2i + 1
+       PRINT *,'b3'
      END IF
-
+     k2i = k2i + 1
+     
      PrevPtr => List(k1) % Head 
      RowPtr  => List(k1) % Head % Next
 
      DO i=k2i,nk2
        k2=Ind(i)
        IF(k2 < 1 .OR. k2 > maxi) CYCLE
+
+       PRINT *,'b4'
        
        ! Find a correct place place to add index to
        DO WHILE( ASSOCIATED(RowPtr) )
@@ -569,9 +583,12 @@ CONTAINS
        END IF
      END DO
 
+     ! Add the remaining entries
      DO j=i,nk2
        k2 = Ind(j)
        IF(k2 < 1 .OR. k2 > maxi) CYCLE
+
+       PRINT *,'b5'
        
        Entry => List_GetMatrixEntry(k2,null())
        PrevPtr % Next => Entry

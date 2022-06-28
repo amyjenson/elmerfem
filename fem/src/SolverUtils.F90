@@ -15521,7 +15521,7 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
   IF(.NOT. Found) NotExplicit=.FALSE.
 
   ! When this has been checked properly the old can be removed
-  PSA = ListGetLogical( Solver % Values,'PSA',Found ) 
+  PSA = ListGetLogical( Solver % Values,'PSA1',Found ) 
   IF(.NOT. Found) PSA = .TRUE.
     
   RestMatrix => NULL()
@@ -15832,6 +15832,7 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
 
       IF(Found) THEN
         IF( PSA .AND. CollectionMatrix % FORMAT == MATRIX_LIST ) THEN
+          PRINT *,'a1'
           BLOCK
             INTEGER :: l1,l2
             l1 = AddMatrix % Rows(i)
@@ -15872,6 +15873,7 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
   
   DO i=StiffMatrix % NumberOfRows,1,-1
     IF(PSA .AND. CollectionMatrix % FORMAT /= MATRIX_LIST) THEN 
+      PRINT *,'a2'
       BLOCK
         INTEGER :: l1,l2
         l1 = StiffMatrix % Rows(i)
@@ -15996,6 +15998,7 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
       i = UseIPerm(m)
 
       IF( PSA .AND. CollectionMatrix % FORMAT == MATRIX_LIST ) THEN
+        PRINT *,'a3'
         BLOCK
           INTEGER :: l1,l2
           l1 = RestMatrix % Rows(m)
@@ -16120,7 +16123,8 @@ RECURSIVE SUBROUTINE SolveWithLinearRestriction( StiffMatrix, ForceVector, Solut
           END IF
         END IF
 
-        IF( PSA .AND. CollectionMatrix % FORMAT == MATRIX_LIST ) THEN
+        IF(PSA .AND. CollectionMatrix % FORMAT == MATRIX_LIST ) THEN
+          PRINT *,'a4',scl
           BLOCK
             INTEGER :: l1,l2
             l1 = StiffMatrix % Rows(i)
@@ -16486,10 +16490,24 @@ CONTAINS
     IF( PRESENT( ValScale ) ) THEN
       Vals_pack(1:m) = ValScale * Vals_pack(1:m)
     END IF
-    
-    CALL List_AddMatrixIndexesAndValues(Matrix % ListMatrix, k1, m, &
-        Cols_pack, Vals_pack )
-    
+
+    PRINT *,'vals1:',n,Vals(1:n)
+    PRINT *,'vals2:',m,Vals_pack(1:m)
+
+    PRINT *,'cols1:',n,Cols(1:n)
+    PRINT *,'cols2:',m,Cols_pack(1:m)
+
+
+    IF(.FALSE.) THEN
+      DO i=1,m
+        CALL List_AddToMatrixElement( Matrix % ListMatrix, k1, &
+            cols_pack(i), vals_pack(i) )
+      END DO
+    ELSE
+      CALL List_AddMatrixIndexesAndValues(Matrix % ListMatrix, k1, m, &
+          Cols_pack, Vals_pack )
+    END IF
+      
   END SUBROUTINE PackSparseRow
 #endif
 

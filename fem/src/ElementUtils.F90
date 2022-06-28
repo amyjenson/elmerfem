@@ -327,7 +327,7 @@ CONTAINS
     END IF
 
     ! When this has been checked properly the old can be removed
-    PSA = ListGetLogical( Solver % Values,'PSA',Found ) 
+    PSA = ListGetLogical( Solver % Values,'PSA2',Found ) 
     IF(.NOT. Found) PSA = .TRUE.
     
     List => List_AllocateMatrix(LocalNodes)
